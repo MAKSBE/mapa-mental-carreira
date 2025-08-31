@@ -352,9 +352,12 @@ const CareerMindMapWorking = () => {
       };
     }).filter(Boolean);
 
-    // Função para detectar colisões entre nós
+    // Função para detectar colisões entre nós com margem adaptativa
     const detectCollision = (node1, node2) => {
-      const margin = 25; // Aumentar margem para evitar sobreposições
+      const baseMargin = 20;
+      const sizeMargin = Math.max(node1.width, node1.height, node2.width, node2.height) * 0.1;
+      const margin = baseMargin + sizeMargin;
+      
       return (
         node1.x < node2.x + node2.width + margin &&
         node1.x + node1.width + margin > node2.x &&
@@ -363,88 +366,169 @@ const CareerMindMapWorking = () => {
       );
     };
 
-    // Resolver colisões ajustando posições
+    // Calcular força de repulsão entre dois nós
+    const calculateRepulsionForce = (node1, node2) => {
+      const dx = (node2.x + node2.width/2) - (node1.x + node1.width/2);
+      const dy = (node2.y + node2.height/2) - (node1.y + node1.height/2);
+      const distance = Math.sqrt(dx*dx + dy*dy);
+      
+      if (distance === 0) return { fx: Math.random() * 10 - 5, fy: Math.random() * 10 - 5 };
+      
+      const minDistance = (node1.width + node2.width)/2 + (node1.height + node2.height)/2 + 30;
+      const strength = distance < minDistance ? (minDistance - distance) / minDistance : 0;
+      
+      return {
+        fx: -(dx / distance) * strength * 15,
+        fy: -(dy / distance) * strength * 15
+      };
+    };
+
+    // Resolver colisões usando física de partículas
     const resolveCollisions = (nodes) => {
-      const maxIterations = 100; // Aumentar iterações
+      const maxIterations = 150;
+      const damping = 0.8;
       let iteration = 0;
       
+      // Inicializar velocidades
+      nodes.forEach(node => {
+        node.vx = node.vx || 0;
+        node.vy = node.vy || 0;
+      });
+      
+      const centralNode = nodes.find(n => n.id === selectedPositionId);
+      
       while (iteration < maxIterations) {
-        let hasCollision = false;
+        let hasMovement = false;
         
+        // Resetar forças
+        nodes.forEach(node => {
+          node.fx = 0;
+          node.fy = 0;
+        });
+        
+        // Calcular forças de repulsão entre todos os pares
         for (let i = 0; i < nodes.length; i++) {
           for (let j = i + 1; j < nodes.length; j++) {
             const node1 = nodes[i];
             const node2 = nodes[j];
             
-            if (detectCollision(node1, node2)) {
-              hasCollision = true;
+            if (detectCollision(node1, node2) || iteration < 50) {
+              const force = calculateRepulsionForce(node1, node2);
               
-              if (node1.id === selectedPositionId) {
-                // Nó central - empurrar o outro para longe
-                const angle = Math.atan2(node2.y - node1.y, node2.x - node1.x);
-                const distance = 220; // Distância mínima do centro
-                node2.x = node1.x + node1.width/2 + distance * Math.cos(angle) - node2.width/2;
-                node2.y = node1.y + node1.height/2 + distance * Math.sin(angle) - node2.height/2;
-              } else if (node2.id === selectedPositionId) {
-                // Nó central - empurrar o outro para longe
-                const angle = Math.atan2(node1.y - node2.y, node1.x - node2.x);
-                const distance = 220; // Distância mínima do centro
-                node1.x = node2.x + node2.width/2 + distance * Math.cos(angle) - node1.width/2;
-                node1.y = node2.y + node2.height/2 + distance * Math.sin(angle) - node1.height/2;
-              } else {
-                // Ambos são nós periféricos - empurrar para direções opostas
-                const centerX = (node1.x + node2.x + node1.width + node2.width) / 2;
-                const centerY = (node1.y + node2.y + node1.height + node2.height) / 2;
-                
-                const angle1 = Math.atan2(node1.y + node1.height/2 - centerY, node1.x + node1.width/2 - centerX);
-                const angle2 = Math.atan2(node2.y + node2.height/2 - centerY, node2.x + node2.width/2 - centerX);
-                
-                const pushDistance = 60; // Aumentar distância de empurrão
-                node1.x += pushDistance * Math.cos(angle1);
-                node1.y += pushDistance * Math.sin(angle1);
-                node2.x += pushDistance * Math.cos(angle2);
-                node2.y += pushDistance * Math.sin(angle2);
-              }
+              // Aplicar força diferenciada baseada na hierarquia
+              const multiplier1 = node1.id === selectedPositionId ? 0.1 : 1.0;
+              const multiplier2 = node2.id === selectedPositionId ? 0.1 : 1.0;
               
-              // Manter dentro dos limites com margens maiores
-              const minX = 15;
-              const maxX = width - 165;
-              const minY = 15; 
-              const maxY = height - 95;
-              
-              node1.x = Math.max(minX, Math.min(maxX, node1.x));
-              node1.y = Math.max(minY, Math.min(maxY, node1.y));
-              node2.x = Math.max(minX, Math.min(maxX, node2.x));
-              node2.y = Math.max(minY, Math.min(maxY, node2.y));
+              node1.fx += force.fx * multiplier1;
+              node1.fy += force.fy * multiplier1;
+              node2.fx -= force.fx * multiplier2;
+              node2.fy -= force.fy * multiplier2;
             }
           }
         }
         
-        if (!hasCollision) break;
+        // Força de atração para o centro para nós periféricos
+        nodes.forEach(node => {
+          if (node.id !== selectedPositionId && centralNode) {
+            const dx = (centralNode.x + centralNode.width/2) - (node.x + node.width/2);
+            const dy = (centralNode.y + centralNode.height/2) - (node.y + node.height/2);
+            const distance = Math.sqrt(dx*dx + dy*dy);
+            
+            const idealDistance = 200;
+            if (distance > idealDistance * 1.5) {
+              const pullStrength = 0.3;
+              node.fx += (dx / distance) * pullStrength;
+              node.fy += (dy / distance) * pullStrength;
+            }
+          }
+        });
+        
+        // Aplicar forças e atualizar posições
+        nodes.forEach(node => {
+          if (node.id === selectedPositionId) return; // Manter posição central fixa
+          
+          // Atualizar velocidade com amortecimento
+          node.vx = (node.vx + node.fx) * damping;
+          node.vy = (node.vy + node.fy) * damping;
+          
+          // Limitar velocidade máxima
+          const maxSpeed = 8;
+          const speed = Math.sqrt(node.vx*node.vx + node.vy*node.vy);
+          if (speed > maxSpeed) {
+            node.vx = (node.vx / speed) * maxSpeed;
+            node.vy = (node.vy / speed) * maxSpeed;
+          }
+          
+          // Atualizar posição
+          const oldX = node.x;
+          const oldY = node.y;
+          
+          node.x += node.vx;
+          node.y += node.vy;
+          
+          // Verificar movimento significativo
+          if (Math.abs(node.x - oldX) > 0.1 || Math.abs(node.y - oldY) > 0.1) {
+            hasMovement = true;
+          }
+          
+          // Manter dentro dos limites da tela
+          const minX = 20;
+          const maxX = width - node.width - 20;
+          const minY = 20;
+          const maxY = height - node.height - 20;
+          
+          node.x = Math.max(minX, Math.min(maxX, node.x));
+          node.y = Math.max(minY, Math.min(maxY, node.y));
+          
+          // Bounce nas bordas
+          if (node.x <= minX || node.x >= maxX) node.vx *= -0.5;
+          if (node.y <= minY || node.y >= maxY) node.vy *= -0.5;
+        });
+        
+        // Parar se não há movimento significativo
+        if (!hasMovement && iteration > 30) break;
         iteration++;
       }
       
-      // Verificação final para garantir que nenhum nó ficou na mesma posição
-      for (let i = 0; i < nodes.length; i++) {
-        for (let j = i + 1; j < nodes.length; j++) {
-          const node1 = nodes[i];
-          const node2 = nodes[j];
+      // Pós-processamento: organização por área para melhor agrupamento visual
+      const connections = getSmartConnections(selectedPositionId);
+      const nodesByArea = {};
+      
+      connections.forEach(conn => {
+        const node = nodes.find(n => n.id === conn.id);
+        if (node) {
+          const area = node.pillar;
+          if (!nodesByArea[area]) nodesByArea[area] = [];
+          nodesByArea[area].push(node);
+        }
+      });
+      
+      // Ajuste fino por área para melhor organização visual
+      Object.values(nodesByArea).forEach(areaNodes => {
+        if (areaNodes.length > 1) {
+          areaNodes.sort((a, b) => {
+            const connA = connections.find(c => c.id === a.id);
+            const connB = connections.find(c => c.id === b.id);
+            return (connB?.score || 0) - (connA?.score || 0);
+          });
           
-          // Se ainda estão muito próximos, fazer ajuste manual
-          if (Math.abs(node1.x - node2.x) < 50 && Math.abs(node1.y - node2.y) < 50) {
-            const offset = 80;
-            if (j % 2 === 0) {
-              node2.x += offset;
-            } else {
-              node2.y += offset;
-            }
+          // Pequeno ajuste para espaçamento uniforme dentro da área
+          for (let i = 1; i < areaNodes.length; i++) {
+            const prevNode = areaNodes[i-1];
+            const currNode = areaNodes[i];
+            const dx = currNode.x - prevNode.x;
+            const dy = currNode.y - prevNode.y;
+            const dist = Math.sqrt(dx*dx + dy*dy);
             
-            // Revalidar limites
-            node2.x = Math.max(15, Math.min(width - 165, node2.x));
-            node2.y = Math.max(15, Math.min(height - 95, node2.y));
+            if (dist < 60 && dist > 0) {
+              const pushX = (dx / dist) * (60 - dist) * 0.5;
+              const pushY = (dy / dist) * (60 - dist) * 0.5;
+              currNode.x += pushX;
+              currNode.y += pushY;
+            }
           }
         }
-      }
+      });
       
       return nodes;
     };
@@ -472,39 +556,17 @@ const CareerMindMapWorking = () => {
       });
     }
     
-    // Definir marcadores de seta para as conexões
-    svg.append("defs").selectAll("marker")
-      .data(["internal", "cross-functional"])
-      .enter().append("marker")
-      .attr("id", d => `arrow-${d}`)
-      .attr("viewBox", "0 -5 10 10")
-      .attr("refX", 15)
-      .attr("refY", 0)
-      .attr("markerWidth", 6)
-      .attr("markerHeight", 6)
-      .attr("orient", "auto")
-      .append("path")
-      .attr("d", "M0,-5L10,0L0,5")
-      .attr("fill", d => {
-        switch(d) {
-          case 'internal': return '#60A5FA'; // Azul claro para mesma área
-          case 'cross-functional': return '#A78BFA'; // Roxo claro para mudança de área
-          default: return '#93C5FD';
-        }
-      })
-      .attr("opacity", 0.8);
-    
-    // Renderizar links com setas e estilos diferenciados
+    // Renderizar links com estilos diferenciados
     if (links.length > 0) {
       container.selectAll(".link")
         .data(links)
         .enter()
         .append("line")
         .attr("class", "link")
-        .attr("x1", d => d.source.x + d.source.width / 2)
-        .attr("y1", d => d.source.y + d.source.height / 2)
-        .attr("x2", d => d.target.x + d.target.width / 2)
-        .attr("y2", d => d.target.y + d.target.height / 2)
+        .attr("x1", d => d.source.x + d.source.width/2)
+        .attr("y1", d => d.source.y + d.source.height/2)
+        .attr("x2", d => d.target.x + d.target.width/2)
+        .attr("y2", d => d.target.y + d.target.height/2)
         .attr("stroke", d => {
           if (d.type === 'internal') return '#60A5FA'; // Azul claro para mesma área
           if (d.type === 'cross-functional') return '#A78BFA'; // Roxo claro para mudança de área
@@ -524,8 +586,7 @@ const CareerMindMapWorking = () => {
         .attr("stroke-dasharray", d => {
           if (d.type === 'cross-functional') return "8,4"; // Linha tracejada para mudança de área
           return "none";
-        })
-        .attr("marker-end", d => `url(#arrow-${d.type})`);
+        });
     }
     
     // Cores por área
