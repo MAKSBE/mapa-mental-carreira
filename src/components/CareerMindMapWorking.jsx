@@ -64,9 +64,16 @@ const CareerMindMapWorking = () => {
     const currentSalaryMax = currentPos.salaryMax || 0;
     const currentSalaryAvg = (currentSalaryMin + currentSalaryMax) / 2;
 
-    const salaryFlexibility = 0.3;
-    const minAcceptableSalary = currentSalaryAvg * (1 - salaryFlexibility);
-    const maxAcceptableSalary = currentSalaryAvg * (1 + salaryFlexibility * 1.5);
+    // Verificar se a posição atual é o "teto" da carreira
+    // Se o salário mínimo atual for igual ou maior que os salários máximos de outras posições na mesma área
+    const sameAreaPositions = Object.entries(positions).filter(([id, pos]) => 
+      id !== positionId && pos.pillar === currentPos.pillar
+    );
+    
+    const isCareerCeiling = sameAreaPositions.every(([id, pos]) => {
+      const otherSalaryMax = pos.salaryMax || 0;
+      return currentSalaryMin >= otherSalaryMax;
+    });
 
     Object.entries(positions).forEach(([targetId, targetPos]) => {
       if (targetId === positionId) return;
@@ -75,24 +82,48 @@ const CareerMindMapWorking = () => {
       const targetSalaryMax = targetPos.salaryMax || 0;
       const targetSalaryAvg = (targetSalaryMin + targetSalaryMax) / 2;
 
+      // FILTRO PRINCIPAL: Verificar sobreposição de faixas salariais
+      // Só permitir conexões onde há sobreposição real entre as faixas
+      const hasRangeOverlap = currentSalaryMax >= targetSalaryMin && currentSalaryMin <= targetSalaryMax;
+      
+      if (!hasRangeOverlap) {
+        return; // Pular posições sem sobreposição de faixas salariais
+      }
+
+      // NOVO FILTRO: Se a posição atual é teto da carreira, só mostrar progressões salariais
+      if (isCareerCeiling && targetSalaryAvg <= currentSalaryAvg) {
+        return; // Pular posições com salário igual ou menor quando já no teto
+      }
+
       let compatibilityScore = 0;
       let reasons = [];
 
-      // Score salarial
-      if (targetSalaryAvg >= minAcceptableSalary && targetSalaryAvg <= maxAcceptableSalary) {
-        const salaryDiff = Math.abs(currentSalaryAvg - targetSalaryAvg);
-        const maxDiff = currentSalaryAvg * salaryFlexibility;
-        const salaryScore = Math.max(15, (1 - (salaryDiff / maxDiff)) * 35);
+      // Score salarial baseado na sobreposição e progressão
+      const salaryIncrease = targetSalaryAvg - currentSalaryAvg;
+      
+      if (salaryIncrease > 0) {
+        // Há progressão salarial
+        const progressionPercentage = salaryIncrease / currentSalaryAvg;
+        const salaryScore = Math.min(40, progressionPercentage * 40);
         compatibilityScore += salaryScore;
         
-        if (targetSalaryAvg > currentSalaryAvg * 1.1) {
-          reasons.push('Progressão salarial');
+        if (progressionPercentage > 0.5) {
+          reasons.push('Grande progressão salarial');
+        } else if (progressionPercentage > 0.2) {
+          reasons.push('Boa progressão salarial');
         } else {
-          reasons.push('Salário compatível');
+          reasons.push('Progressão salarial moderada');
         }
-      } else if (targetSalaryAvg > currentSalaryAvg) {
-        compatibilityScore += 10;
-        reasons.push('Potencial de crescimento');
+      } else if (hasRangeOverlap) {
+        // Há sobreposição mas não necessariamente progressão
+        // Se está no teto da carreira, reduzir score para posições sem progressão
+        if (isCareerCeiling) {
+          compatibilityScore += 10; // Score menor para movimentos laterais no teto
+          reasons.push('Movimento lateral (teto atingido)');
+        } else {
+          compatibilityScore += 25;
+          reasons.push('Faixa salarial compatível');
+        }
       }
 
       // Score por área
@@ -243,6 +274,20 @@ const CareerMindMapWorking = () => {
     const width = 1000;
     const height = 700;
     const mapAreaWidth = width; // Usar toda a largura agora
+    
+    // Configurar zoom e pan
+    const zoom = d3.zoom()
+      .scaleExtent([0.3, 3]) // Zoom mínimo 30%, máximo 300%
+      .on("zoom", (event) => {
+        container.attr("transform", event.transform);
+      });
+    
+    // Aplicar zoom ao SVG
+    svg.call(zoom);
+    
+    // Criar container principal para zoom/pan
+    const container = svg.append("g")
+      .attr("class", "zoom-container");
     
     // Criar dados para os nós visíveis com layout inteligente
     const nodes = visibleNodes.map((nodeId, index) => {
@@ -470,7 +515,7 @@ const CareerMindMapWorking = () => {
     
     // Renderizar links com setas e estilos diferenciados
     if (links.length > 0) {
-      svg.selectAll(".link")
+      container.selectAll(".link")
         .data(links)
         .enter()
         .append("line")
@@ -513,7 +558,7 @@ const CareerMindMapWorking = () => {
     };
     
     // Renderizar nós como retângulos
-    const node = svg.selectAll(".node")
+    const node = container.selectAll(".node")
       .data(adjustedNodes)
       .enter()
       .append("g")
@@ -521,7 +566,7 @@ const CareerMindMapWorking = () => {
       .attr("transform", d => `translate(${d.x},${d.y})`)
       .on("mouseover", function(event, d) {
         // Destacar conexões do nó
-        svg.selectAll(".link")
+        container.selectAll(".link")
           .transition()
           .duration(200)
           .style("opacity", link => 
@@ -533,7 +578,7 @@ const CareerMindMapWorking = () => {
           .filter(link => link.source.id === d.id || link.target.id === d.id)
           .map(link => link.source.id === d.id ? link.target.id : link.source.id);
         
-        svg.selectAll(".node rect")
+        container.selectAll(".node rect")
           .transition()
           .duration(200)
           .style("opacity", node => 
@@ -542,11 +587,11 @@ const CareerMindMapWorking = () => {
       })
       .on("mouseout", function() {
         // Restaurar opacidade normal
-        svg.selectAll(".link")
+        container.selectAll(".link")
           .transition()
           .duration(300)
           .style("opacity", 0.8);
-        svg.selectAll(".node rect")
+        container.selectAll(".node rect")
           .transition()
           .duration(300)
           .style("opacity", 1);
@@ -654,7 +699,7 @@ const CareerMindMapWorking = () => {
     if (visibleNodes.length > 1) {
       const centralNode = adjustedNodes.find(n => n.id === selectedPositionId);
       if (centralNode) {
-        svg.append("text")
+        container.append("text")
           .attr("x", centralNode.x + centralNode.width / 2)
           .attr("y", centralNode.y + centralNode.height + 25)
           .attr("text-anchor", "middle")
@@ -663,7 +708,156 @@ const CareerMindMapWorking = () => {
           .style("font-weight", "600")
           .text("POSIÇÃO ATUAL");
       }
+    } else {
+      // Se está sozinho (sem conexões), adicionar indicação de máximo absoluto
+      const centralNode = adjustedNodes.find(n => n.id === selectedPositionId);
+      if (centralNode && getSmartConnections(selectedPositionId).length === 0) {
+        // Adicionar ícone de troféu
+        container.append("text")
+          .attr("x", centralNode.x + centralNode.width / 2)
+          .attr("y", centralNode.y + centralNode.height + 25)
+          .attr("text-anchor", "middle")
+          .attr("fill", "#D97706")
+          .style("font-size", "16px")
+          .text("🏆");
+        
+        // Adicionar texto explicativo
+        container.append("text")
+          .attr("x", centralNode.x + centralNode.width / 2)
+          .attr("y", centralNode.y + centralNode.height + 45)
+          .attr("text-anchor", "middle")
+          .attr("fill", "#D97706")
+          .style("font-size", "10px")
+          .style("font-weight", "600")
+          .text("TÉTO DE CARREIRA");
+      }
     }
+    
+    // Adicionar funcionalidade de reset de zoom
+    const resetZoom = () => {
+      svg.transition()
+        .duration(750)
+        .call(zoom.transform, d3.zoomIdentity);
+    };
+    
+    // Adicionar controles de zoom - posicionados horizontalmente no centro inferior
+    const controlsWidth = 125; // 3 botões * 35px + 2 espaços * 10px
+    const controlsHeight = 35;
+    const controls = svg.append("g")
+      .attr("class", "zoom-controls")
+      .attr("transform", `translate(${(width - controlsWidth) / 2}, ${height - controlsHeight - 10})`);
+    
+    // Fundo dos controles para melhor visibilidade
+    controls.append("rect")
+      .attr("x", 0)
+      .attr("y", 0)
+      .attr("width", controlsWidth)
+      .attr("height", controlsHeight)
+      .attr("rx", 8)
+      .attr("fill", "rgba(255, 255, 255, 0.9)")
+      .attr("stroke", "#e5e7eb")
+      .attr("stroke-width", 1)
+      .style("filter", "drop-shadow(0 2px 4px rgba(0,0,0,0.1))");
+    
+    // Botão de zoom out (-)
+    const zoomOutButton = controls.append("g")
+      .attr("class", "zoom-button")
+      .attr("transform", "translate(0, 0)")
+      .style("cursor", "pointer")
+      .on("click", () => {
+        svg.transition()
+          .duration(300)
+          .call(zoom.scaleBy, 0.67);
+      });
+    
+    zoomOutButton.append("rect")
+      .attr("width", 35)
+      .attr("height", 35)
+      .attr("rx", 5)
+      .attr("fill", "white")
+      .attr("stroke", "#d1d5db")
+      .attr("stroke-width", 1);
+    
+    zoomOutButton.append("text")
+      .attr("x", 17.5)
+      .attr("y", 22)
+      .attr("text-anchor", "middle")
+      .attr("dominant-baseline", "middle")
+      .attr("fill", "#374151")
+      .style("font-size", "18px")
+      .style("font-weight", "bold")
+      .text("−");
+    
+    // Botão de reset (⌂)
+    const resetButton = controls.append("g")
+      .attr("class", "zoom-button")
+      .attr("transform", "translate(45, 0)")
+      .style("cursor", "pointer")
+      .on("click", resetZoom);
+    
+    resetButton.append("rect")
+      .attr("width", 35)
+      .attr("height", 35)
+      .attr("rx", 5)
+      .attr("fill", "white")
+      .attr("stroke", "#d1d5db")
+      .attr("stroke-width", 1);
+    
+    resetButton.append("text")
+      .attr("x", 17.5)
+      .attr("y", 22)
+      .attr("text-anchor", "middle")
+      .attr("dominant-baseline", "middle")
+      .attr("fill", "#374151")
+      .style("font-size", "14px")
+      .style("font-weight", "bold")
+      .text("⌂");
+    
+    // Botão de zoom in (+)
+    const zoomInButton = controls.append("g")
+      .attr("class", "zoom-button")
+      .attr("transform", "translate(90, 0)")
+      .style("cursor", "pointer")
+      .on("click", () => {
+        svg.transition()
+          .duration(300)
+          .call(zoom.scaleBy, 1.5);
+      });
+    
+    zoomInButton.append("rect")
+      .attr("width", 35)
+      .attr("height", 35)
+      .attr("rx", 5)
+      .attr("fill", "white")
+      .attr("stroke", "#d1d5db")
+      .attr("stroke-width", 1);
+    
+    zoomInButton.append("text")
+      .attr("x", 17.5)
+      .attr("y", 22)
+      .attr("text-anchor", "middle")
+      .attr("dominant-baseline", "middle")
+      .attr("fill", "#374151")
+      .style("font-size", "18px")
+      .style("font-weight", "bold")
+      .text("+");
+    
+    // Adicionar efeitos de hover aos botões
+    controls.selectAll(".zoom-button")
+      .on("mouseenter", function() {
+        d3.select(this).select("rect")
+          .transition()
+          .duration(200)
+          .attr("fill", "#f3f4f6")
+          .attr("stroke", "#9ca3af");
+      })
+      .on("mouseleave", function() {
+        d3.select(this).select("rect")
+          .transition()
+          .duration(200)
+          .attr("fill", "white")
+          .attr("stroke", "#d1d5db");
+      });
     
   }, [visibleNodes, selectedPositionId]);
 
@@ -742,15 +936,11 @@ const CareerMindMapWorking = () => {
                     key={index}
                     onClick={() => {
                       changePosition(result.key);
-                      // Adicionar apenas se tem conexão válida ou está no histórico
-                      const hasValidConnection = getSmartConnections(selectedPositionId).some(c => c.id === result.key);
+                      // Corrigir: usar result.key (nova posição) em vez do selectedPositionId antigo
+                      const hasValidConnection = getSmartConnections(result.key).some(c => c.id === result.key);
                       const isInHistory = visitedPositions.includes(result.key);
                       
-                      if (hasValidConnection || isInHistory || result.key === selectedPositionId) {
-                        if (!visibleNodes.includes(result.key)) {
-                          setVisibleNodes([...visibleNodes, result.key]);
-                        }
-                      }
+                      // Sempre adicionar o nó selecionado, e suas conexões são calculadas no changePosition
                       setShowSearch(false);
                       setSearchTerm('');
                     }}
@@ -911,11 +1101,66 @@ const CareerMindMapWorking = () => {
                     
                     <div>
                       <h4 className="font-semibold text-gray-900 mb-2">Conexões Inteligentes de Carreira</h4>
-                      <p className="text-xs text-gray-600 mb-3">
-                        Baseado em compatibilidade salarial e transferência de habilidades (todas as {getSmartConnections(selectedPositionId).length} conexões)
-                      </p>
+                      {(() => {
+                        // Verificar se é teto da carreira
+                        const currentPos = positions[selectedPositionId];
+                        const currentSalaryMin = currentPos?.salaryMin || 0;
+                        const sameAreaPositions = Object.entries(positions).filter(([id, pos]) => 
+                          id !== selectedPositionId && pos.pillar === currentPos?.pillar
+                        );
+                        const isCareerCeiling = sameAreaPositions.every(([id, pos]) => {
+                          const otherSalaryMax = pos.salaryMax || 0;
+                          return currentSalaryMin >= otherSalaryMax;
+                        });
+                        
+                        // Verificar se chegou ao limite máximo absoluto (sem conexões válidas)
+                        const smartConnections = getSmartConnections(selectedPositionId);
+                        const isAbsoluteMaximum = smartConnections.length === 0;
+                        
+                        return (
+                          <p className="text-xs text-gray-600 mb-3">
+                            {isAbsoluteMaximum ? (
+                              <span className="flex items-center gap-1">
+                                <span className="text-amber-600">🏆</span>
+                                <strong className="text-amber-700">PARABÉNS! Você atingiu o limite máximo da progressão de carreira!</strong>
+                                <br />
+                                <span className="text-gray-500 mt-1">Esta é a posição de maior nível hierárquico e salarial disponível.</span>
+                              </span>
+                            ) : isCareerCeiling ? (
+                              <span className="flex items-center gap-1">
+                                <span className="text-yellow-600">👑</span>
+                                <strong>Teto da Carreira Atingido!</strong> Apenas progressões para novas áreas ou níveis executivos superiores.
+                              </span>
+                            ) : (
+                              <>Baseado em compatibilidade salarial e transferência de habilidades (todas as {getSmartConnections(selectedPositionId).length} conexões)</>
+                            )}
+                          </p>
+                        );
+                      })()}
                       <div className="space-y-2 max-h-80 overflow-y-auto">
-                        {getSmartConnections(selectedPositionId).map((connection, index) => {
+                        {getSmartConnections(selectedPositionId).length === 0 ? (
+                          <div className="text-center py-8 px-4 bg-gradient-to-br from-amber-50 to-yellow-50 rounded-lg border-2 border-amber-200">
+                            <div className="text-4xl mb-3">🏆</div>
+                            <h3 className="text-lg font-bold text-amber-800 mb-2">
+                              LIMITE MÁXIMO ATINGIDO!
+                            </h3>
+                            <p className="text-sm text-amber-700 mb-3">
+                              Parabéns! Você chegou ao topo da pirâmide corporativa.
+                            </p>
+                            <div className="text-xs text-amber-600 space-y-1">
+                              <div>🎯 Maior nível hierárquico disponível</div>
+                              <div>💰 Faixa salarial máxima da categoria</div>
+                              <div>👑 Posição de liderança executiva</div>
+                            </div>
+                            <div className="mt-4 p-3 bg-white rounded border border-amber-200">
+                              <p className="text-xs text-gray-600">
+                                <strong>Próximos passos:</strong> Foque em consolidar sua posição, 
+                                mentorear outros profissionais e impactar estrategicamente a organização.
+                              </p>
+                            </div>
+                          </div>
+                        ) : (
+                          getSmartConnections(selectedPositionId).map((connection, index) => {
                           const isVisible = visibleNodes.includes(connection.id);
                           
                           return (
@@ -973,7 +1218,8 @@ const CareerMindMapWorking = () => {
                               </div>
                             </div>
                           );
-                        })}
+                        })
+                        )}
                       </div>
                     </div>
                   </div>

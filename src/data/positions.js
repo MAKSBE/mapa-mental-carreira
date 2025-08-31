@@ -298,6 +298,19 @@
     description: "Direção estratégica financeira", 
     requirements: ["Visão estratégica", "Mercado de capitais", "Liderança executiva"] 
   },
+    "cto-financeiro": { 
+    id: "cto-financeiro", 
+    title: "Diretor Geral (CTO)", 
+    level: "Diretoria", 
+    salary: "R$ 45.000 - R$ 65.000", 
+    salaryMin: 45000, 
+    salaryMax: 65000, 
+    color: "#34D399", 
+    connections: [], 
+    pillar: "Financeiro", 
+    description: "Direção estratégica financeira geral", 
+    requirements: ["Visão estratégica", "Mercado de capitais", "Liderança executiva"] 
+  },
   "analista-rh": { 
     id: "analista-rh", 
     title: "Analista de RH", 
