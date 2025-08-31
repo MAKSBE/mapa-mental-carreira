@@ -202,25 +202,6 @@ const CareerMindMapWorking = () => {
     setVisitedPositions(['dev-net']);
   };
 
-  const handleShowAll = () => {
-    // Mostrar apenas posições com conexões válidas
-    const allValidConnections = new Set();
-    
-    // Obter todas as conexões válidas de todas as posições
-    Object.keys(positions).forEach(positionId => {
-      const connections = getSmartConnections(positionId);
-      connections.forEach(conn => {
-        allValidConnections.add(conn.id);
-        allValidConnections.add(positionId); // Incluir a posição que tem conexões
-      });
-    });
-    
-    // Garantir que a posição atual esteja incluída
-    allValidConnections.add(selectedPositionId);
-    
-    setVisibleNodes(Array.from(allValidConnections));
-  };
-
   const handleSearchPositions = (term) => {
     if (!term.trim()) {
       setSearchResults([]);
@@ -910,12 +891,6 @@ const CareerMindMapWorking = () => {
             
             <div className="flex gap-2">
               <button 
-                onClick={handleShowAll}
-                className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors"
-              >
-                👁️ Mostrar Válidos
-              </button>
-              <button 
                 onClick={handleReset}
                 className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors"
               >
@@ -1282,7 +1257,7 @@ const CareerMindMapWorking = () => {
                       </div>
                       <div className="flex items-center gap-3">
                         <div className="w-4 h-4 border border-gray-300 rounded bg-gray-100 opacity-60"></div>
-                        <span className="text-sm text-gray-700">Histórico (canto direito)</span>
+                        <span className="text-sm text-gray-700">Histórico (seção superior)</span>
                       </div>
                       <div className="flex items-center gap-3">
                         <div className="w-3 h-0.5 bg-gray-400"></div>
